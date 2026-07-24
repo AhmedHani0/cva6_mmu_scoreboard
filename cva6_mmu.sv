@@ -47,8 +47,6 @@ module cva6_mmu
     input icache_arsp_t icache_areq_i,
     output icache_areq_t icache_areq_o,
     // LSU interface
-    // this is a more minimalistic interface because the actual addressing logic is handled
-    // in the LSU as we distinguish load and stores, what we do here is simple address translation
     input exception_t misaligned_ex_i,
     input logic lsu_req_i,  // request address translation
     input logic [CVA6Cfg.VLEN-1:0] lsu_vaddr_i,  // virtual address in

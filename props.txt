@@ -1,147 +1,4 @@
 
-External interface signals
-
-Instruction:
-  icache_areq_i
-  icache_areq_o
-
-Data:
-  lsu_req_i
-  lsu_vaddr_i
-  lsu_is_store_i
-  lsu_dtlb_hit_o
-  lsu_dtlb_ppn_o
-  lsu_valid_o
-  lsu_paddr_o
-  lsu_exception_o
-
-Miss counters:
-  itlb_miss_o
-  dtlb_miss_o
-
-PTW memory:
-  req_port_i
-  req_port_o
-
-itlb_lu_hit
-dtlb_lu_hit
-itlb_content
-dtlb_content
-itlb_g_content
-dtlb_g_content
-update_itlb
-update_dtlb
-update_shared_tlb
-shared_tlb_hit
-shared_tlb_access
-ptw_active
-walking_instr
-ptw_error
-ptw_access_exception
-
-
-
-SANITY PROPS
-
-// Instruction fetch request always causes ITLB lookup
-p_itlb_lookup_access_definition: assert property (
-  @(posedge clk_i) disable iff (!rst_ni)
-  itlb_lu_access == icache_areq_i.fetch_req
-);
-
-
-
-// Misaligned LSU request must not access DTLB
-p_misaligned_blocks_dtlb_lookup: assert property (
-  @(posedge clk_i) disable iff (!rst_ni)
-  lsu_req_i && misaligned_ex_i.valid
-  |->
-  !dtlb_lu_access
-);
-
-
-// If LSU request is aligned, DTLB lookup follows request
-p_dtlb_lookup_access_definition: assert property (
-  @(posedge clk_i) disable iff (!rst_ni)
-  dtlb_lu_access == (lsu_req_i && !misaligned_ex_i.valid)
-);
-
-
-
-
-
-
-
-----------------------------------------------------------
-
-The bug we must catch in the old MMU is:
-
-Same-cycle LSU DTLB PPN output bug
-
-Signal:
-  lsu_dtlb_ppn_o
-
-Problem:
-  For superpages, the old MMU puts virtual-address-derived bits into the wrong
-  bit positions because it treats the PPN output like a physical-address bus.
-
-Core mistake:
-  physical address bits [20:12] correspond to PPN bits [8:0],
-  not PPN bits [20:12].
-
-So when we verify the old MMU, we must not only check:
-
-Cycle N+1:
-  lsu_paddr_o is correct
-
-We must also check:
-
-Cycle N:
-  lsu_dtlb_hit_o is high
-  lsu_dtlb_ppn_o is correct immediately
-
-The scoreboard must include a property like:
-
-// Same-cycle PPN must be correctly formed from PTE + VA superpage substitution.
-p_lsu_dtlb_ppn_same_cycle_correct: assert property (
-  @(posedge clk_i) disable iff (!rst_ni)
-  lsu_req_i &&
-  !misaligned_ex_i.valid &&
-  (en_ld_st_translation_i || en_ld_st_g_translation_i) &&
-  lsu_dtlb_hit_o
-  |->
-  lsu_dtlb_ppn_o == expected_lsu_dtlb_ppn
-);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 constraint, control signals,(not interested in the pmp control signals) (maybe later try symbolic pmp from johannes)
@@ -170,3 +27,13 @@ Data integrity (translation in case of hit)
 COnstrained livenss
 
 afterwards, test exceptions (for first step, constrain no errors, or exceptions)
+
+
+
+Liveness.....
+wrapping up the bug
+
+documentation nfor the MMU
+
+the git hub links to the presentation
+data inttegrity trace for the waveformfor the bug eport
