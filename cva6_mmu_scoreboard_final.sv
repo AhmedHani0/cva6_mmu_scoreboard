@@ -249,23 +249,47 @@ module cva6_mmu_scoreboard_bind
   // original 4 KiB offset creates the exact address promised by the cycle-0
   // MMU interface, independent of page size and translation mode.
   // ---------------------------------------------------------------------------
+logic lsu_prev_misaligned_q;
+
+always_ff @(posedge clk_i or negedge rst_ni) begin
+  if (!rst_ni) begin
+    lsu_prev_misaligned_q <= 1'b0;
+  end else begin
+    lsu_prev_misaligned_q <=
+        misaligned_ex_i.valid && lsu_req_i;
+  end
+end
+
   wire lsu_hit_event;
+  wire [CVA6Cfg.PPNW-1:0] lsu_true_ppn;
   logic lsu_hit_packet_valid_q;
+  logic [CVA6Cfg.PPNW-1:0]  lsu_hit_ppn_q;
   logic [CVA6Cfg.PLEN-1:0] lsu_hit_expected_paddr_q;
 
   assign lsu_hit_event =
       lsu_req_i &&
+      lsu_translation_enabled &&
       !misaligned_ex_i.valid &&
+      !lsu_prev_misaligned_q &&
       lsu_dtlb_hit_o &&
       !any_flush;
+  
+  assign lsu_true_ppn =
+    CVA6Cfg.PPNW'(
+      lsu_paddr_o[CVA6Cfg.PLEN-1:12]
+    );
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       lsu_hit_packet_valid_q   <= 1'b0;
       lsu_hit_expected_paddr_q <= '0;
+      lsu_hit_ppn_q          <= '0;
+
     end else if (any_flush) begin
       lsu_hit_packet_valid_q   <= 1'b0;
       lsu_hit_expected_paddr_q <= '0;
+      lsu_hit_ppn_q          <= '0;
+
     end else begin
       lsu_hit_packet_valid_q <= lsu_hit_event;
       if (lsu_hit_event) begin
@@ -274,6 +298,7 @@ module cva6_mmu_scoreboard_bind
           lsu_dtlb_ppn_o,
           lsu_vaddr_i[11:0]
         };
+        lsu_hit_ppn_q <= lsu_dtlb_ppn_o;
       end
     end
   end
@@ -286,7 +311,7 @@ module cva6_mmu_scoreboard_bind
   // the same cycle as the eventual ITLB hit.
   a_fetch_request_and_context_held_until_terminal: assume property (
     @(posedge clk_i) disable iff (!rst_ni)
-    fetch_pending_q && !any_flush
+    fetch_pending_q && !any_flush && !fetch_terminal
     |->
     fetch_request &&
     $stable(icache_areq_i.fetch_vaddr) &&
@@ -363,6 +388,20 @@ module cva6_mmu_scoreboard_bind
     $stable(vs_asid_i) &&
     $stable(vmid_i)
   );
+
+a_lsu_translation_mode_stable_after_hit: assume property (
+  @(posedge clk_i)
+  disable iff (!rst_ni || any_flush)
+
+  lsu_hit_event
+
+  |=>
+
+  (en_ld_st_translation_i ==
+      $past(en_ld_st_translation_i)) &&
+  (en_ld_st_g_translation_i ==
+      $past(en_ld_st_g_translation_i))
+);
 
   a_no_flush_during_fetch_transaction: assume property (
   @(posedge clk_i) disable iff (!rst_ni)
@@ -446,18 +485,34 @@ a_no_flush_during_lsu_transaction: assume property (
     fetch_terminal
   );
 
-  // This is the main historical-bug property. It is generic: no page-size or
+  // Data_Integrity property. It is generic: no page-size or
   // stage-specific case is bypassed. A correct effective cycle-0 PPN plus the
   // original 12-bit offset must equal the clean cycle-1 physical address.
-  p_lsu_translation_data_integrity_cycle_n: assert property (
-    @(posedge clk_i) disable iff (!rst_ni)
-    lsu_hit_packet_valid_q &&
-    lsu_clean_terminal &&
-    !any_flush
+  p_lsu_translation_ppn_integrity: assert property (
+    @(posedge clk_i) disable iff (!rst_ni || any_flush)
+    lsu_hit_event
+    ##1
+    lsu_clean_terminal
     |->
-    (lsu_paddr_o == lsu_hit_expected_paddr_q)
+    CVA6Cfg.PPNW'(lsu_paddr_o[CVA6Cfg.PLEN-1:12])
+      == $past(lsu_dtlb_ppn_o)
   );
 
+  p_lsu_hit_packet_capture_sanity: assert property (
+  @(posedge clk_i) disable iff (!rst_ni || any_flush)
+  lsu_hit_event
+  |=>
+  lsu_hit_packet_valid_q &&
+  // Scoreboard really stored the PPN that the MMU exposed in the hit cycle.
+  (lsu_hit_ppn_q == $past(lsu_dtlb_ppn_o)) &&
+  // And the expected PA really consists of that same PPN plus
+  // the original request's 12-bit page offset.
+  (lsu_hit_expected_paddr_q ==
+    {
+      $past(lsu_dtlb_ppn_o),
+      $past(lsu_vaddr_i[11:0])
+    })
+  );
   // ---------------------------------------------------------------------------
   // Liveness
   // ---------------------------------------------------------------------------

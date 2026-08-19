@@ -54,6 +54,8 @@ package cva6_mmu_formal_pkg;
     force_mmu_user_cfg.InstrTlbEntries = int'(2);
     force_mmu_user_cfg.DataTlbEntries  = int'(2);
     force_mmu_user_cfg.SharedTlbDepth  = int'(2);
+    //disable pmp
+    force_mmu_user_cfg.NrPMPEntries = unsigned'(0);
   endfunction
 
   localparam config_pkg::cva6_user_cfg_t CVA6UserCfg =
@@ -120,6 +122,9 @@ package cva6_mmu_formal_pkg;
         unsigned'(14);
     force_mmu_base_cfg.MODE_SV =
         config_pkg::ModeSv39;
+    //for safety make sure after building the config pkg that pmp is disabled
+    force_mmu_base_cfg.NrPMPEntries =
+        unsigned'(0);
   endfunction
 
   localparam config_pkg::cva6_cfg_t CVA6Cfg =

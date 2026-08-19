@@ -96,14 +96,8 @@ read_sv $WORK_ROOT/cva6_mmu_formal_pkg.sv
 #    shared TLB can be local copies in WORK_ROOT so we verify exactly the target
 #    source version.
 # -----------------------------------------------------------------------------
-read_first_existing "cva6_tlb" [list \
-    $CVA6_RTL_ROOT/mmu_sv39/cva6_tlb.sv \
-    $CVA6_RTL_ROOT/mmu_sv32/cva6_tlb.sv \
-    $CVA6_RTL_ROOT/mmu/cva6_tlb.sv \
-    $CVA6_RTL_ROOT/cva6_tlb.sv \
-    $WORK_ROOT/cva6_tlb.sv \
-]
 
+read_sv $WORK_ROOT/cva6_tlb.sv
 read_sv $WORK_ROOT/cva6_shared_tlb.sv
 read_sv $WORK_ROOT/cva6_ptw.sv
 read_sv $WORK_ROOT/cva6_mmu.sv
@@ -114,7 +108,12 @@ read_sv $WORK_ROOT/cva6_mmu.sv
 read_sv $WORK_ROOT/cva6_mmu_formal_top.sv
 read_sv $WORK_ROOT/cva6_mmu_scoreboard_final.sv
 
-set_elaborate_option -golden -call_threshold 100 -loop_iter_threshold 300 -nobreaking_unbounded_loops -x_optimism -verilog_parameter {} -verilog_library_search_order {} -no_verilog_library_resolution_ieee_compliance -no_verilog_config_support -vhdl_generic {} -vhdl_assertion_report_prefix {onespin} -black_box {{work.cva6_ptw}} -black_box_empty_modules -no_black_box_missing_modules -black_box_library {} -black_box_component {} -top {Verilog!work.cva6_mmu_formal_top}
+set_elaborate_option -golden \
+    -call_threshold 100 \
+    -loop_iter_threshold 300 \
+    -nobreaking_unbounded_loops \
+    -x_optimism \
+    -top {Verilog!work.cva6_mmu_formal_top}
 
 elaborate -golden
 
@@ -130,7 +129,7 @@ foreach c $all_checks {
 
 # 8) Run all checks one by one.
 foreach c $all_checks {
-    if {[string match "*i_cva6_mmu_scoreboard_bind/*" $c]} {
+    if {[string match "*sva/i_cva6_mmu/i_cva6_mmu_scoreboard_bind/p*" $c]} {
     puts "============================================================"
     puts "Running check: $c"
     puts "============================================================"
