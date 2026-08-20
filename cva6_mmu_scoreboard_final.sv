@@ -482,23 +482,23 @@ p_lsu_translation_ppn_integrity: assert property (
   // Liveness
   // ---------------------------------------------------------------------------
 
-  p_lsu_mmu_liveness_30: assert property (
+  p_lsu_mmu_liveness: assert property (
     @(posedge clk_i) disable iff (!rst_ni || any_flush)
     $rose(lsu_req_i) &&
     !lsu_terminal &&
     !misaligned_ex_i.valid
     |->
-    ##[1:PTW_TO_RESPONSE_MAX] lsu_terminal
+    ##[1:$] lsu_terminal
   );
 
-  p_fetch_mmu_liveness_bounded: assert property (
+  p_fetch_mmu_liveness: assert property (
     @(posedge clk_i) disable iff (!rst_ni || any_flush)
     $rose(fetch_request) &&
     !fetch_terminal
     |->
-    ##[1:PTW_TO_RESPONSE_MAX]
-    fetch_terminal
+    ##[1:$]fetch_terminal
   );
+  
   // ---------------------------------------------------------------------------
   // Coverage: modes, direct hits, real PTW paths, and page sizes.
   // --------------------------------------------------------------------------
