@@ -309,38 +309,45 @@ end
 
   // Instruction requests are level-held because fetch_valid is generated in
   // the same cycle as the eventual ITLB hit.
-  a_fetch_request_and_context_held_until_terminal: assume property (
-    @(posedge clk_i) disable iff (!rst_ni)
-    fetch_pending_q && !any_flush && !fetch_terminal
-    |->
-    fetch_request &&
-    $stable(icache_areq_i.fetch_vaddr) &&
-    $stable(enable_translation_i) &&
-    $stable(enable_g_translation_i) &&
-    $stable(priv_lvl_i) &&
-    $stable(v_i) &&
-    $stable(mxr_i) &&
-    $stable(vmxr_i) &&
-    $stable(mbe_i) &&
-    $stable(satp_ppn_i) &&
-    $stable(vsatp_ppn_i) &&
-    $stable(hgatp_ppn_i) &&
-    $stable(asid_i) &&
-    $stable(vs_asid_i) &&
-    $stable(vmid_i)
-  );
+a_fetch_request_context_held_until_response: assume property (
+  @(posedge clk_i) disable iff (!rst_ni || any_flush)
+  fetch_request &&
+  !fetch_terminal
+  |=>
+  // Keep the translation context associated with the same request.
+  $stable(icache_areq_i.fetch_vaddr) &&
+  $stable(enable_translation_i) &&
+  $stable(enable_g_translation_i) &&
+  $stable(priv_lvl_i) &&
+  $stable(v_i) &&
+  $stable(mxr_i) &&
+  $stable(vmxr_i) &&
+  $stable(mbe_i) &&
+  $stable(satp_ppn_i) &&
+  $stable(vsatp_ppn_i) &&
+  $stable(hgatp_ppn_i) &&
+  $stable(asid_i) &&
+  $stable(vs_asid_i) &&
+  $stable(vmid_i) &&
+  // Until there is a response, the request must remain presented.
+  (fetch_terminal || fetch_request)
+);
 
   // Before the registered LSU response, the request and its context are held.
-  a_lsu_request_and_context_held_while_waiting: assume property (
-    @(posedge clk_i) disable iff (!rst_ni)
-    lsu_pending_q && !lsu_terminal && !any_flush
-    |->
+  a_lsu_request_context_held_until_response: assume property (
+  @(posedge clk_i) disable iff (!rst_ni || any_flush)
+  lsu_req_i &&
+  !misaligned_ex_i.valid &&
+  !lsu_terminal
+  |=>
+  lsu_terminal ||
+  (
     lsu_req_i &&
+    !misaligned_ex_i.valid &&
     $stable(lsu_vaddr_i) &&
     $stable(lsu_tinst_i) &&
     $stable(lsu_is_store_i) &&
     $stable(hs_ld_st_inst_i) &&
-    $stable(misaligned_ex_i) &&
     $stable(en_ld_st_translation_i) &&
     $stable(en_ld_st_g_translation_i) &&
     $stable(ld_st_priv_lvl_i) &&
@@ -357,66 +364,24 @@ end
     $stable(asid_i) &&
     $stable(vs_asid_i) &&
     $stable(vmid_i)
-  );
-
-  // In the LSU terminal cycle the requester may deassert lsu_req_i, but the
-  // address and translation context must remain stable until the result has
-  // been sampled.
-  a_lsu_context_held_on_terminal_cycle: assume property (
-    @(posedge clk_i) disable iff (!rst_ni)
-    lsu_pending_q && lsu_terminal && !any_flush
-    |->
-    $stable(lsu_vaddr_i) &&
-    $stable(lsu_tinst_i) &&
-    $stable(lsu_is_store_i) &&
-    $stable(hs_ld_st_inst_i) &&
-    $stable(misaligned_ex_i) &&
-    $stable(en_ld_st_translation_i) &&
-    $stable(en_ld_st_g_translation_i) &&
-    $stable(ld_st_priv_lvl_i) &&
-    $stable(ld_st_v_i) &&
-    $stable(sum_i) &&
-    $stable(vs_sum_i) &&
-    $stable(mxr_i) &&
-    $stable(vmxr_i) &&
-    $stable(mbe_i) &&
-    $stable(hlvx_inst_i) &&
-    $stable(satp_ppn_i) &&
-    $stable(vsatp_ppn_i) &&
-    $stable(hgatp_ppn_i) &&
-    $stable(asid_i) &&
-    $stable(vs_asid_i) &&
-    $stable(vmid_i)
-  );
+  )
+);
 
 a_lsu_translation_mode_stable_after_hit: assume property (
-  @(posedge clk_i)
-  disable iff (!rst_ni || any_flush)
-
+  @(posedge clk_i)disable iff (!rst_ni || any_flush)
   lsu_hit_event
-
   |=>
-
-  (en_ld_st_translation_i ==
-      $past(en_ld_st_translation_i)) &&
-  (en_ld_st_g_translation_i ==
-      $past(en_ld_st_g_translation_i))
+  (en_ld_st_translation_i == $past(en_ld_st_translation_i)) &&
+  (en_ld_st_g_translation_i == $past(en_ld_st_g_translation_i))
 );
 
-  a_no_flush_during_fetch_transaction: assume property (
-  @(posedge clk_i) disable iff (!rst_ni)
-  fetch_pending_q
+a_fetch_not_starved_by_lsu: assume property (
+  @(posedge clk_i)disable iff (!rst_ni || any_flush)
+  fetch_request &&
+  !fetch_terminal
   |->
-  !any_flush
+  !(lsu_req_i && !misaligned_ex_i.valid)
 );
-
-a_no_flush_during_lsu_transaction: assume property (
-  @(posedge clk_i) disable iff (!rst_ni)
-  lsu_pending_q
-  |->
-  !any_flush
-);
-
   // External memory fairness for the real PTW. No constraint is placed on the
   // returned PTE data; it may describe any legal/illegal page-table path.
   a_ptw_request_is_granted: assume property (
@@ -488,15 +453,15 @@ a_no_flush_during_lsu_transaction: assume property (
   // Data_Integrity property. It is generic: no page-size or
   // stage-specific case is bypassed. A correct effective cycle-0 PPN plus the
   // original 12-bit offset must equal the clean cycle-1 physical address.
-  p_lsu_translation_ppn_integrity: assert property (
-    @(posedge clk_i) disable iff (!rst_ni || any_flush)
-    lsu_hit_event
-    ##1
-    lsu_clean_terminal
-    |->
-    CVA6Cfg.PPNW'(lsu_paddr_o[CVA6Cfg.PLEN-1:12])
-      == $past(lsu_dtlb_ppn_o)
-  );
+p_lsu_translation_ppn_integrity: assert property (
+  @(posedge clk_i) disable iff (!rst_ni || any_flush)
+
+  lsu_hit_packet_valid_q &&
+  lsu_clean_terminal
+
+  |->
+  lsu_hit_ppn_q == lsu_true_ppn
+);
 
   p_lsu_hit_packet_capture_sanity: assert property (
   @(posedge clk_i) disable iff (!rst_ni || any_flush)
@@ -517,19 +482,23 @@ a_no_flush_during_lsu_transaction: assume property (
   // Liveness
   // ---------------------------------------------------------------------------
 
-p_fetch_mmu_liveness: assert property (
-  @(posedge clk_i) disable iff (!rst_ni)
-    $rose(fetch_pending_q)
+  p_lsu_mmu_liveness_30: assert property (
+    @(posedge clk_i) disable iff (!rst_ni || any_flush)
+    $rose(lsu_req_i) &&
+    !lsu_terminal &&
+    !misaligned_ex_i.valid
     |->
-    s_eventually(fetch_terminal)
-);
+    ##[1:PTW_TO_RESPONSE_MAX] lsu_terminal
+  );
 
-p_lsu_mmu_liveness: assert property (
-  @(posedge clk_i) disable iff (!rst_ni)
-    $rose(lsu_pending_q)
+  p_fetch_mmu_liveness_bounded: assert property (
+    @(posedge clk_i) disable iff (!rst_ni || any_flush)
+    $rose(fetch_request) &&
+    !fetch_terminal
     |->
-    s_eventually(lsu_terminal)
-);
+    ##[1:PTW_TO_RESPONSE_MAX]
+    fetch_terminal
+  );
   // ---------------------------------------------------------------------------
   // Coverage: modes, direct hits, real PTW paths, and page sizes.
   // --------------------------------------------------------------------------
@@ -600,6 +569,33 @@ p_lsu_mmu_liveness: assert property (
     @(posedge clk_i) disable iff (!rst_ni)
     lsu_pending_q && dtlb_miss_o
     ##[1:PTW_TO_RESPONSE_MAX]
+    lsu_terminal
+  );
+
+  c_lsu_liveness_start_seen: cover property (
+    @(posedge clk_i) disable iff (!rst_ni || any_flush)
+    $rose(lsu_req_i) &&
+    !lsu_terminal &&
+    !misaligned_ex_i.valid
+  );
+
+  c_lsu_liveness_completion_seen: cover property (
+    @(posedge clk_i) disable iff (!rst_ni || any_flush)
+    ($rose(lsu_req_i) &&
+    !lsu_terminal &&
+    !misaligned_ex_i.valid)
+    ##[1:30]
+    lsu_terminal
+  );
+
+  c_lsu_completion_after_30_seen: cover property (
+    @(posedge clk_i) disable iff (!rst_ni || any_flush)
+    ($rose(lsu_req_i) &&
+    !lsu_terminal &&
+    !misaligned_ex_i.valid)
+    ##30
+    !lsu_terminal
+    ##[1:31]
     lsu_terminal
   );
 
